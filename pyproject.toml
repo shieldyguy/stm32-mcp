@@ -29,6 +29,7 @@ Repository = "https://github.com/shieldyguy/stm32-mcp"
 [project.scripts]
 stm32-mcp = "stm32_mcp.server:main"
 stm32-serial = "stm32_mcp.serial_client:main"
+stm32-fus = "stm32_mcp.fus:cli_main"
 
 [build-system]
 requires = ["hatchling"]

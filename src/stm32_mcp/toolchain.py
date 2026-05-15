@@ -21,9 +21,13 @@ from pathlib import Path
 _cubeide_path: str | None = None
 _openocd_path: str | None = None
 _st_info_path: str | None = None
+_stm32_programmer_cli_path: str | None = None
+_wireless_binaries_dir: str | None = None
 _cubeide_searched = False
 _openocd_searched = False
 _st_info_searched = False
+_stm32_programmer_cli_searched = False
+_wireless_binaries_searched = False
 
 
 def find_cubeide() -> str | None:
@@ -66,6 +70,61 @@ def find_openocd() -> str | None:
 
     _openocd_searched = True
     return _openocd_path
+
+
+def find_stm32_programmer_cli() -> str | None:
+    """Find STM32_Programmer_CLI executable. Caches result after first lookup.
+
+    Used by the FUS / BLE stack tools to drive `-fwupgrade` on STM32WB boards.
+    """
+    global _stm32_programmer_cli_path, _stm32_programmer_cli_searched
+    if _stm32_programmer_cli_searched:
+        return _stm32_programmer_cli_path
+
+    patterns = [
+        "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/"
+        "STM32CubeProgrammer.app/Contents/Resources/bin/STM32_Programmer_CLI",
+        "/opt/st/stm32cubeprog_*/bin/STM32_Programmer_CLI",
+        "/opt/stm32cubeprogrammer/bin/STM32_Programmer_CLI",
+    ]
+    for pattern in patterns:
+        matches = glob.glob(pattern)
+        if matches:
+            _stm32_programmer_cli_path = sorted(matches)[-1]
+            break
+
+    if _stm32_programmer_cli_path is None:
+        on_path = shutil.which("STM32_Programmer_CLI")
+        if on_path:
+            _stm32_programmer_cli_path = on_path
+
+    _stm32_programmer_cli_searched = True
+    return _stm32_programmer_cli_path
+
+
+def find_wireless_binaries_dir() -> str | None:
+    """Find the STM32WB_Copro_Wireless_Binaries folder. Caches after first lookup.
+
+    Resolution order:
+      1. $STM32_WIRELESS_BINARIES env var
+      2. ~/stm32cube-wb/Projects/STM32WB_Copro_Wireless_Binaries (FUS_INSTALL.md default)
+    """
+    global _wireless_binaries_dir, _wireless_binaries_searched
+    if _wireless_binaries_searched:
+        return _wireless_binaries_dir
+
+    env = os.environ.get("STM32_WIRELESS_BINARIES")
+    if env and os.path.isdir(env):
+        _wireless_binaries_dir = env
+    else:
+        default = os.path.expanduser(
+            "~/stm32cube-wb/Projects/STM32WB_Copro_Wireless_Binaries"
+        )
+        if os.path.isdir(default):
+            _wireless_binaries_dir = default
+
+    _wireless_binaries_searched = True
+    return _wireless_binaries_dir
 
 
 def find_st_info() -> str | None:

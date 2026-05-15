@@ -9,6 +9,7 @@ from .serial_bridge import start_bridge
 from .build import stm32_build, stm32_build_and_flash
 from .debug_tools import stm32_read_memory, stm32_write_memory
 from .flash import stm32_board_info, stm32_flash
+from .fus import stm32_ble_stack_install, stm32_fus_bootstrap, stm32_fus_upgrade
 from .serial_tools import (
     serial_connect,
     serial_disconnect,
@@ -41,6 +42,9 @@ stm32-mcp: Build, flash, and communicate with STM32 hardware.
 - live_memory_start    — Start continuous background memory monitoring via SWD
 - live_memory_stop     — Stop a live memory session
 - live_memory_read     — Read recent entries from a live memory session
+- stm32_fus_upgrade    — Upgrade FUS on a bare STM32WB board (step 1 of bringup)
+- stm32_ble_stack_install — Install BLE stack on STM32WB (step 2 of bringup)
+- stm32_fus_bootstrap  — One-shot: FUS upgrade + BLE stack full install
 
 ## Typical Workflow
 
@@ -112,6 +116,17 @@ stm32-mcp: Build, flash, and communicate with STM32 hardware.
   Uses GDB DWARF info — works with `-fshort-enums`, padding, etc.
   To monitor a struct as raw bytes instead, use `{"symbol": "blink", "expand": false}`.
 - Sessions auto-reconnect if ST-Link connection drops (up to 3 retries with backoff)
+
+## STM32WB FUS / BLE Stack (first-time bringup)
+
+- stm32_fus_bootstrap(probe="...") runs FUS upgrade then BLE stack full install
+- stm32_fus_upgrade and stm32_ble_stack_install are the individual steps
+- Only STM32WB1x (chipid 0x494) is wired — other WB chipids error out
+- Wireless binaries folder is resolved from wireless_dir arg, then
+  $STM32_WIRELESS_BINARIES, then ~/stm32cube-wb/Projects/STM32WB_Copro_Wireless_Binaries
+- FUS ops wipe flash sectors [0..3], so always re-flash user firmware with
+  stm32_build_and_flash afterward
+- Same functions are reachable from a shell via `stm32-fus {upgrade,stack,bootstrap}`
 """
 
 mcp = FastMCP("stm32-mcp", instructions=INSTRUCTIONS)
@@ -134,6 +149,9 @@ mcp.tool()(stm32_write_memory)
 mcp.tool()(live_memory_start)
 mcp.tool()(live_memory_stop)
 mcp.tool()(live_memory_read)
+mcp.tool()(stm32_fus_upgrade)
+mcp.tool()(stm32_ble_stack_install)
+mcp.tool()(stm32_fus_bootstrap)
 
 
 def main():
