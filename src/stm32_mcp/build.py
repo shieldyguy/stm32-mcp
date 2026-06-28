@@ -1,4 +1,4 @@
-"""Build tools — CubeIDE headless build, ELF discovery, output summarization."""
+"""Build tools  -  CubeIDE headless build, ELF discovery, output summarization."""
 
 import asyncio
 import glob
@@ -18,14 +18,14 @@ _imported_projects: dict[str, bool] = {}
 WORKSPACE_PATH = "/tmp/stm32-mcp-workspace"
 WORKSPACE_LOCK = os.path.join(WORKSPACE_PATH, ".metadata", ".lock")
 
-BUILD_TIMEOUT = 180  # seconds
+BUILD_TIMEOUT = 60  # seconds
 
 
 def _check_and_clear_workspace_lock() -> str | None:
     """Check workspace lock. Clear if stale. Returns error message or None.
 
     Our temp workspace (/tmp/stm32-mcp-workspace) is never used by CubeIDE GUI,
-    so we only need to check if another MCP headless build is using it — not
+    so we only need to check if another MCP headless build is using it  -  not
     whether CubeIDE is running in general (it uses its own workspace).
     """
     if not os.path.isfile(WORKSPACE_LOCK):
@@ -45,7 +45,15 @@ def _check_and_clear_workspace_lock() -> str | None:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
-    # No process using our workspace — stale lock, remove it
+    # No process using our workspace  -  stale lock. Kill any orphaned
+    # CubeIDE headless processes and remove the lock.
+    try:
+        subprocess.run(
+            ["pkill", "-f", "headlessbuild.*stm32-mcp-workspace"],
+            capture_output=True, timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
     try:
         os.remove(WORKSPACE_LOCK)
     except OSError:
@@ -152,7 +160,7 @@ def _summarize_build(raw: str, project_name: str) -> dict:
 
 
 def _find_elf(project_path: str, config: str, build_output: str) -> str | None:
-    """Find the .elf file — glob by mtime, fallback to parsing build output."""
+    """Find the .elf file  -  glob by mtime, fallback to parsing build output."""
     # Glob for .elf files in the build config directory
     elf_pattern = os.path.join(project_path, config, "*.elf")
     elfs = glob.glob(elf_pattern)
@@ -180,7 +188,7 @@ def _do_build(
     clean: bool = False,
     _retry: bool = False,
 ) -> dict:
-    """Synchronous build — runs in executor thread."""
+    """Synchronous build  -  runs in executor thread."""
     # Find CubeIDE
     cubeide = find_cubeide()
     if not cubeide:
@@ -217,18 +225,20 @@ def _do_build(
 
     cmd.extend([build_flag, build_target])
 
-    # Run build
+    # Run build  -  use Popen so we can guarantee cleanup on any exit path.
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=BUILD_TIMEOUT,
-        )
+        stdout, stderr = proc.communicate(timeout=BUILD_TIMEOUT)
     except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
         return {"success": False, "summary": f"Build: FAILED\n  Build timed out after {BUILD_TIMEOUT}s."}
+    except Exception:
+        proc.kill()
+        proc.wait()
+        raise
 
-    raw_output = result.stdout + "\n" + result.stderr
+    raw_output = stdout + "\n" + stderr
 
     # Detect success
     has_build_finished = bool(re.search(r"Build Finished", raw_output, re.IGNORECASE))
@@ -284,12 +294,12 @@ async def stm32_build(
     """Build STM32 firmware using CubeIDE headless builder.
 
     Compiles the project at project_path using the specified build configuration.
-    CubeIDE headless mode automatically detects new/deleted source files — no
+    CubeIDE headless mode automatically detects new/deleted source files  -  no
     Makefile maintenance needed.
 
     Args:
         project_path: Absolute path to the CubeIDE project root (must contain .project and .cproject).
-        configuration: Build configuration — "Debug" or "Release".
+        configuration: Build configuration  -  "Debug" or "Release".
         clean: If true, clean before building (slower but ensures full rebuild).
 
     Returns:
@@ -324,12 +334,12 @@ async def stm32_build_and_flash(
     """Build firmware and flash it to the board in one step.
 
     Compiles the project, then flashes the resulting .elf to the connected
-    STM32 via ST-Link. This is the most common workflow — use this instead
+    STM32 via ST-Link. This is the most common workflow  -  use this instead
     of calling stm32_build and stm32_flash separately.
 
     Args:
         project_path: Absolute path to the CubeIDE project root.
-        configuration: Build configuration — "Debug" or "Release".
+        configuration: Build configuration  -  "Debug" or "Release".
         clean: If true, clean before building.
         reset: If true, reset the board after flashing.
         verify: If true, verify flash contents after writing.
