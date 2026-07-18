@@ -1,9 +1,10 @@
-#!/Users/chrismcdowell/Desktop/shieldy/MCP/stm32-mcp/.venv/bin/python
+#!/bin/sh
+''':'
+exec "$(cd "$(dirname "$0")/.." && pwd)/.venv/bin/python" "$0" "$@"
+'''
 """stm32-bf <project_path> <probe|board> [Debug|Release] [--clean]
 
-Build and flash in one step (the common workflow), reusing the MCP's
-exact code path. Runs as two visible phases -- build, then flash -- so
-there's no long silence. Probe colors and board nicknames both resolve.
+Build and flash in one step (the common workflow).
 """
 import sys
 import asyncio

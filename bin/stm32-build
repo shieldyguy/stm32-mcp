@@ -1,8 +1,10 @@
-#!/Users/chrismcdowell/Desktop/shieldy/MCP/stm32-mcp/.venv/bin/python
+#!/bin/sh
+''':'
+exec "$(cd "$(dirname "$0")/.." && pwd)/.venv/bin/python" "$0" "$@"
+'''
 """stm32-build <project_path> [Debug|Release] [--clean]
 
-Build a CubeIDE project with the headless builder, reusing the MCP's
-exact code path. Prints the same summary + ELF path the MCP tool does.
+Build a CubeIDE project with the headless builder.
 """
 import sys
 import asyncio

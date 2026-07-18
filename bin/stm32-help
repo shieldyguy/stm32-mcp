@@ -1,0 +1,45 @@
+#!/bin/sh
+''':'
+exec "$(cd "$(dirname "$0")/.." && pwd)/.venv/bin/python" "$0" "$@"
+'''
+"""stm32-help -- list the self-serve stm32-* commands and what they do.
+
+Reads the docstring of every sibling stm32-* script in bin/, so new
+commands show up here automatically.
+"""
+import ast
+import os
+import sys
+
+bindir = os.path.dirname(os.path.abspath(__file__))
+
+print("stm32-mcp self-serve CLI (same code paths as the MCP tools)\n")
+for name in sorted(os.listdir(bindir)):
+    if not name.startswith("stm32-") or name == "stm32-help":
+        continue
+    path = os.path.join(bindir, name)
+    # The real docstring is the LAST leading string expression: the
+    # sh-exec polyglot shim is the first, the docstring follows it.
+    try:
+        tree = ast.parse(open(path).read())
+    except SyntaxError:
+        continue
+    doc = None
+    for node in tree.body:
+        if (isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)):
+            doc = node.value.value
+        else:
+            break
+    if not doc:
+        continue
+    lines = doc.strip().splitlines()
+    print(f"  {lines[0]}")                      # usage line
+    for extra in lines[1:]:
+        if extra.strip():
+            print(f"      {extra.strip()}")
+    print()
+
+print("  stm32-help -- this listing")
+print("\nProbe args accept probe nicknames, board nicknames, or ST-Link SNs.")

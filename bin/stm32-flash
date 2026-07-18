@@ -1,9 +1,10 @@
-#!/Users/chrismcdowell/Desktop/shieldy/MCP/stm32-mcp/.venv/bin/python
+#!/bin/sh
+''':'
+exec "$(cd "$(dirname "$0")/.." && pwd)/.venv/bin/python" "$0" "$@"
+'''
 """stm32-flash <probe|board> <file.elf|.bin|.hex> [--noverify] [--noreset]
 
-Flash a prebuilt firmware file to a board via ST-Link, reusing the MCP's
-exact code path (board_map nickname resolution, OpenOCD, target cfg).
-Probe colors (green/yellow/mod/blue) and board nicknames both resolve.
+Flash a prebuilt firmware file to a board via ST-Link.
 """
 import sys
 import asyncio
