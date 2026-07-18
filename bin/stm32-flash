@@ -1,0 +1,28 @@
+#!/Users/chrismcdowell/Desktop/shieldy/MCP/stm32-mcp/.venv/bin/python
+"""stm32-flash <probe|board> <file.elf|.bin|.hex> [--noverify] [--noreset]
+
+Flash a prebuilt firmware file to a board via ST-Link, reusing the MCP's
+exact code path (board_map nickname resolution, OpenOCD, target cfg).
+Probe colors (green/yellow/mod/blue) and board nicknames both resolve.
+"""
+import sys
+import asyncio
+from stm32_mcp.flash import stm32_flash
+
+
+def note(msg):
+    print(msg, file=sys.stderr, flush=True)
+
+
+args = sys.argv[1:]
+if len(args) < 2:
+    sys.exit("usage: stm32-flash <probe|board> <file.elf> [--noverify] [--noreset]")
+
+probe, elf = args[0], args[1]
+verify = "--noverify" not in args
+reset = "--noreset" not in args
+
+note(f"-> flashing {elf} to '{probe}' ...")
+result = asyncio.run(stm32_flash(elf, reset=reset, verify=verify, probe=probe))
+print(result)
+note("-> done" if "OK" in result else "-> FAILED")

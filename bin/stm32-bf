@@ -1,0 +1,47 @@
+#!/Users/chrismcdowell/Desktop/shieldy/MCP/stm32-mcp/.venv/bin/python
+"""stm32-bf <project_path> <probe|board> [Debug|Release] [--clean]
+
+Build and flash in one step (the common workflow), reusing the MCP's
+exact code path. Runs as two visible phases -- build, then flash -- so
+there's no long silence. Probe colors and board nicknames both resolve.
+"""
+import sys
+import asyncio
+from stm32_mcp.build import stm32_build
+from stm32_mcp.flash import stm32_flash
+
+
+def note(msg):
+    print(msg, file=sys.stderr, flush=True)
+
+
+args = sys.argv[1:]
+if len(args) < 2:
+    sys.exit("usage: stm32-bf <project_path> <probe|board> [Debug|Release] [--clean]")
+
+project, probe = args[0], args[1]
+clean = "--clean" in args
+config = next((a for a in args[2:] if not a.startswith("--")), "Debug")
+
+# Phase 1: build
+note(f"-> [1/2] building {project} ({config}){' clean' if clean else ''} ...")
+build_out = asyncio.run(stm32_build(project, configuration=config, clean=clean))
+print(build_out)
+
+if "Build: OK" not in build_out:
+    note("-> build FAILED -- not flashing")
+    sys.exit(1)
+
+# The build output ends with "ELF: <path>" on success.
+elf = next((line[len("ELF: "):].strip()
+            for line in build_out.splitlines() if line.startswith("ELF: ")), None)
+if not elf:
+    note("-> build OK but no ELF found -- cannot flash")
+    sys.exit(1)
+
+# Phase 2: flash
+note(f"-> [2/2] flashing to '{probe}' ...")
+flash_out = asyncio.run(stm32_flash(elf, probe=probe))
+print(flash_out)
+note("-> done" if "OK" in flash_out else "-> flash FAILED")
+sys.exit(0 if "OK" in flash_out else 1)

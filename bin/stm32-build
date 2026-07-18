@@ -1,0 +1,27 @@
+#!/Users/chrismcdowell/Desktop/shieldy/MCP/stm32-mcp/.venv/bin/python
+"""stm32-build <project_path> [Debug|Release] [--clean]
+
+Build a CubeIDE project with the headless builder, reusing the MCP's
+exact code path. Prints the same summary + ELF path the MCP tool does.
+"""
+import sys
+import asyncio
+from stm32_mcp.build import stm32_build
+
+
+def note(msg):
+    print(msg, file=sys.stderr, flush=True)
+
+
+args = sys.argv[1:]
+if not args:
+    sys.exit("usage: stm32-build <project_path> [Debug|Release] [--clean]")
+
+project = args[0]
+clean = "--clean" in args
+config = next((a for a in args[1:] if not a.startswith("--")), "Debug")
+
+note(f"-> building {project} ({config}){' clean' if clean else ''} ...")
+result = asyncio.run(stm32_build(project, configuration=config, clean=clean))
+print(result)
+note("-> done" if "Build: OK" in result else "-> FAILED")

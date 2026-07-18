@@ -1,0 +1,11 @@
+#!/Users/chrismcdowell/Desktop/shieldy/MCP/stm32-mcp/.venv/bin/python
+"""stm32-list -- list connected ST-Link probes and boards with nicknames.
+
+Reuses the MCP's exact code path (same output as stm32_list_probes).
+"""
+import sys
+import asyncio
+from stm32_mcp.board_map import stm32_list_probes
+
+print("-> scanning ST-Link probes ...", file=sys.stderr, flush=True)
+print(asyncio.run(stm32_list_probes()))
