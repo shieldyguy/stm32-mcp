@@ -2,7 +2,7 @@
 ''':'
 exec "$(cd "$(dirname "$0")/.." && pwd)/.venv/bin/python" "$0" "$@"
 '''
-"""stm32-flash <probe|board> <file.elf|.bin|.hex> [--noverify] [--noreset]
+"""stm32-flash <probe|board> <file.elf|.bin|.hex> [--noverify] [--noreset] — flash a prebuilt image over SWD
 
 Flash a prebuilt firmware file to a board via ST-Link.
 """

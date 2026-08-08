@@ -2,7 +2,7 @@
 ''':'
 exec "$(cd "$(dirname "$0")/.." && pwd)/.venv/bin/python" "$0" "$@"
 '''
-"""stm32-build <project_path> [Debug|Release] [--clean]
+"""stm32-build <project_path> [Debug|Release] [--clean] — build a CubeIDE project headless
 
 Build a CubeIDE project with the headless builder.
 """

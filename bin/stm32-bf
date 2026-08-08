@@ -2,7 +2,7 @@
 ''':'
 exec "$(cd "$(dirname "$0")/.." && pwd)/.venv/bin/python" "$0" "$@"
 '''
-"""stm32-bf <project_path> <probe|board> [Debug|Release] [--clean]
+"""stm32-bf <project_path> <probe|board> [Debug|Release] [--clean] — build and flash in one step
 
 Build and flash in one step (the common workflow).
 """
