@@ -4,6 +4,7 @@ import asyncio
 import glob
 import os
 import re
+import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -187,8 +188,22 @@ def _do_build(
     configuration: str = "Debug",
     clean: bool = False,
     _retry: bool = False,
+    _depth: int = 0,
 ) -> dict:
     """Synchronous build  -  runs in executor thread."""
+    # The recovery paths below re-enter this function. Two hops covers
+    # every legitimate recovery (clear state, reimport); a third means
+    # the recoveries are feeding each other  -  stop with a diagnosis
+    # instead of looping until the caller's timeout beheads us.
+    if _depth > 2:
+        return {
+            "success": False,
+            "summary": (
+                "Build: FAILED\n  Retry loop: workspace state and import "
+                "retries are feeding each other. Workspace was "
+                f"{WORKSPACE_PATH}; deleting it and retrying once is safe."
+            ),
+        }
     # Find CubeIDE
     cubeide = find_cubeide()
     if not cubeide:
@@ -247,10 +262,21 @@ def _do_build(
     was_skipped = bool(re.search(r"Skipping\.\.\.", raw_output))
     success = has_build_finished and not has_errors and not has_build_failed and not was_skipped
 
-    # If import failed because project already in workspace, retry without -import
+    # Import conflict: a project by this name is already registered in
+    # the workspace (the server restarted; the import cache is memory,
+    # the workspace is disk). The registration may even be a phantom
+    # pointing at nothing  -  so retrying without -import can build the
+    # wrong thing or nothing. Deregister it and import fresh: one hop,
+    # converges for both the stale and the phantom case.
     if not success and "already exists in the workspace" in raw_output:
-        _imported_projects[cache_key] = True
-        return _do_build(project_path, configuration, clean)
+        registration = os.path.join(
+            WORKSPACE_PATH, ".metadata", ".plugins",
+            "org.eclipse.core.resources", ".projects", project_name,
+        )
+        shutil.rmtree(registration, ignore_errors=True)
+        _imported_projects.pop(cache_key, None)
+        return _do_build(project_path, configuration, clean,
+                         _retry=True, _depth=_depth + 1)
 
     # If build failed because project not found, retry with -import
     if not success and not _retry:
@@ -262,7 +288,8 @@ def _do_build(
         )
         if not_found:
             _imported_projects.pop(cache_key, None)
-            return _do_build(project_path, configuration, clean, _retry=True)
+            return _do_build(project_path, configuration, clean,
+                             _retry=True, _depth=_depth + 1)
 
     # Mark as imported on success
     if success:
@@ -307,13 +334,24 @@ async def stm32_build(
         and the path to the built .elf file on success.
     """
     loop = asyncio.get_event_loop()
-    result = await asyncio.wait_for(
-        loop.run_in_executor(
-            _executor,
-            lambda: _do_build(project_path, configuration, clean),
-        ),
-        timeout=BUILD_TIMEOUT + 10,
-    )
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                _executor,
+                lambda: _do_build(project_path, configuration, clean),
+            ),
+            # Recovery paths may relaunch CubeIDE up to 3 times, each
+            # bounded by BUILD_TIMEOUT; this guards a hung executor,
+            # not a slow compile.
+            timeout=BUILD_TIMEOUT * 3 + 15,
+        )
+    except asyncio.TimeoutError:
+        # A bare TimeoutError reaches the client as an empty error
+        # string  -  say what actually happened.
+        return (
+            f"Build: FAILED\n  No result after {BUILD_TIMEOUT * 3 + 15}s "
+            f"(executor hung; check {LOG_DIR} for the last build log)."
+        )
 
     # Format output
     parts = []
@@ -353,13 +391,19 @@ async def stm32_build_and_flash(
 
     # Build first
     loop = asyncio.get_event_loop()
-    build_result = await asyncio.wait_for(
-        loop.run_in_executor(
-            _executor,
-            lambda: _do_build(project_path, configuration, clean),
-        ),
-        timeout=BUILD_TIMEOUT + 10,
-    )
+    try:
+        build_result = await asyncio.wait_for(
+            loop.run_in_executor(
+                _executor,
+                lambda: _do_build(project_path, configuration, clean),
+            ),
+            timeout=BUILD_TIMEOUT * 3 + 15,
+        )
+    except asyncio.TimeoutError:
+        return (
+            f"Build: FAILED\n  No result after {BUILD_TIMEOUT * 3 + 15}s "
+            f"(executor hung; check {LOG_DIR} for the last build log)."
+        )
 
     parts = []
     parts.append(build_result["summary"])
