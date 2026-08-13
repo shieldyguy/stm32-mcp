@@ -137,7 +137,7 @@ Board nicknames follow the physical MCU (persist across probe swaps). Probe nick
 
 ## Hardware Sequences
 
-`serial_sequence` runs multiple steps — serial send, delay, webcam capture, and SWD memory read/write — in a single tool call with real timing between steps. No tool-call overhead between steps; delays use a real `time.sleep()` in the executor thread. This is critical for timing-sensitive hardware test sequences and for bit-banging registers over SWD (e.g. blinking a GPIO on a board with no firmware).
+`serial_sequence` schedules multiple steps (serial send, delay, webcam capture, and SWD memory read/write) in one tool call. delays use a `time.sleep()` in the executor thread. Claude can't reliably time individual tool calls, so this allows tight timing of commands and expectations. 
 
 ### Step types
 
