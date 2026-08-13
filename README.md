@@ -69,12 +69,10 @@ Add to your project's `.claude/settings.json` or `.claude.json`:
 }
 ```
 
-## Self-serve CLI (no agent required)
+## Self-serve CLI 
 
-Sometimes you just want to flash something yourself without spending tokens.
-`bin/` contains four thin wrappers over the exact same code paths the MCP
-tools use — same board-map nickname resolution, same OpenOCD invocation,
-same headless builder, same output:
+`bin/` contains four thin wrappers over the same code the MCP
+tools use
 
 | Command       | Usage                                                        |
 | ------------- | ------------------------------------------------------------ |
@@ -90,27 +88,11 @@ Add `bin/` to your PATH:
 export PATH="/path/to/stm32-mcp/bin:$PATH"
 ```
 
-Probe nicknames and board nicknames both resolve, exactly as they do in the
-MCP `probe` parameters. Progress goes to stderr (`stm32-bf` announces its
-build and flash phases as it goes); results go to stdout, so output pipes
-cleanly. The scripts run via the venv's interpreter directly — no activation
-needed.
+Probe nicknames and board nicknames resolve.
 
-```
-$ stm32-bf ~/projects/buoy mod
--> [1/2] building /Users/you/projects/buoy (Debug) ...
-Build: OK (0 errors, 0 warnings, 819ms)
-Size: 31976 text, 12 data, 3044 bss
-ELF: /Users/you/projects/buoy/Debug/buoy.elf
--> [2/2] flashing to 'mod' ...
-Flash: OK
-Verify: OK
-Reset: OK
--> done
-```
-
-One caveat: builds share the MCP's headless CubeIDE workspace lock, so a
+Builds share the MCP's headless CubeIDE workspace lock, so a
 `stm32-build`/`stm32-bf` racing an agent-driven build will queue behind it.
+
 
 ## Available Tools
 
