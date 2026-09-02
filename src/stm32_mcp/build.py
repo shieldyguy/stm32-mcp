@@ -330,12 +330,13 @@ async def stm32_build_and_flash(
     reset: bool = True,
     verify: bool = True,
     probe: str = "",
+    backend: str = "stlink",
 ) -> str:
     """Build firmware and flash it to the board in one step.
 
     Compiles the project, then flashes the resulting .elf to the connected
-    STM32 via ST-Link. This is the most common workflow  -  use this instead
-    of calling stm32_build and stm32_flash separately.
+    STM32. Direct stlink/st-flash is the default backend; use ``backend="openocd"``
+    for the legacy OpenOCD path.
 
     Args:
         project_path: Absolute path to the CubeIDE project root.
@@ -344,10 +345,14 @@ async def stm32_build_and_flash(
         reset: If true, reset the board after flashing.
         verify: If true, verify flash contents after writing.
         probe: Board nickname, probe nickname, or ST-Link SN to target a specific board.
+        backend: ``stlink`` (default) or ``openocd``.
 
     Returns:
         Combined build and flash results.
     """
+    if backend not in {"stlink", "openocd"}:
+        return "ERROR: backend must be 'stlink' or 'openocd'."
+
     # Import here to avoid circular import
     from .flash import stm32_flash
 
@@ -376,7 +381,13 @@ async def stm32_build_and_flash(
         parts.append("ERROR: Build succeeded but no .elf file found. Cannot flash.")
         return "\n".join(parts)
 
-    flash_output = await stm32_flash(elf_path, reset=reset, verify=verify, probe=probe)
+    flash_output = await stm32_flash(
+        elf_path,
+        reset=reset,
+        verify=verify,
+        probe=probe,
+        backend=backend,
+    )
     parts.append(flash_output)
 
     return "\n".join(parts)

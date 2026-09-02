@@ -1,18 +1,115 @@
-"""Flash tools — OpenOCD wrapper for SWD operations."""
+"""Flash tools — stlink-preferred flash with an OpenOCD fallback."""
 
 import asyncio
 import os
 import re
 import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
 from .board_map import resolve_probe_full
-from .toolchain import run_openocd
+from .stlink import stlink_flash
+from .toolchain import find_objcopy, run_openocd
 
 _executor = ThreadPoolExecutor(max_workers=2)
 
 FLASH_TIMEOUT = 30  # seconds
 INFO_TIMEOUT = 10   # seconds
+OBJCOPY_TIMEOUT = 30  # seconds
+
+
+def _is_elf(path: str) -> bool:
+    if path.lower().endswith(".elf"):
+        return True
+    try:
+        with open(path, "rb") as firmware:
+            return firmware.read(4) == b"\x7fELF"
+    except OSError:
+        return False
+
+
+def _convert_elf_to_ihex(elf_path: str, ihex_path: str) -> str | None:
+    """Convert ELF loadable sections to Intel HEX for st-flash."""
+    objcopy = find_objcopy()
+    if not objcopy:
+        return (
+            "ERROR: arm-none-eabi-objcopy not found. Set "
+            "STM32_ARM_TOOLCHAIN_BIN or add the ARM toolchain to PATH."
+        )
+    try:
+        result = subprocess.run(
+            [objcopy, "-O", "ihex", elf_path, ihex_path],
+            capture_output=True,
+            shell=False,
+            text=True,
+            errors="replace",
+            timeout=OBJCOPY_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return f"ERROR: ELF conversion timed out after {OBJCOPY_TIMEOUT}s."
+    except OSError as exc:
+        return f"ERROR: Could not run arm-none-eabi-objcopy: {exc}"
+
+    if result.returncode != 0:
+        output = (result.stdout + "\n" + result.stderr).strip()
+        return (
+            f"ERROR: ELF conversion failed.\n{output}"
+            if output
+            else "ERROR: ELF conversion failed."
+        )
+    return None
+
+
+async def _flash_with_stlink(
+    file_path: str,
+    reset: bool,
+    verify: bool,
+    probe: str,
+) -> str:
+    """Flash ELF, binary, or Intel HEX using the direct stlink backend."""
+    if not os.path.isfile(file_path):
+        return f"ERROR: File not found: {file_path}"
+
+    flash_path = file_path
+    file_format = ""
+    temporary_path = ""
+    loop = asyncio.get_running_loop()
+    try:
+        if _is_elf(file_path):
+            temporary = tempfile.NamedTemporaryFile(suffix=".hex", delete=False)
+            temporary.close()
+            temporary_path = temporary.name
+            conversion_error = await loop.run_in_executor(
+                _executor, _convert_elf_to_ihex, file_path, temporary_path
+            )
+            if conversion_error:
+                return conversion_error
+            flash_path = temporary_path
+            file_format = "ihex"
+        elif file_path.lower().endswith((".hex", ".ihex")):
+            file_format = "ihex"
+        else:
+            file_format = "binary"
+
+        result = await stlink_flash(
+            operation="write",
+            file_path=flash_path,
+            address="" if file_format == "ihex" else "0x08000000",
+            probe=probe,
+            file_format=file_format,
+            reset=reset,
+        )
+        if verify and not result.startswith("ERROR:"):
+            result = "Backend: stlink/st-flash\n" + result
+        elif not verify and not result.startswith("ERROR:"):
+            result = "Backend: stlink/st-flash (verification option unavailable)\n" + result
+        return result
+    finally:
+        if temporary_path:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
 
 
 def _do_flash(
@@ -117,7 +214,7 @@ def _do_board_info(sn: str = "", target_cfg: str = "", chipid: int = 0) -> str:
     # Extract useful fields from OpenOCD connect output
     info = []
 
-    # ST-LINK version: "STLINK V3J16M8"
+    # ST-LINK version: "STLINK V3Jxx"
     stlink_ver = re.search(r'STLINK\s+(V\S+)', output)
     if stlink_ver:
         info.append(f"ST-LINK FW: {stlink_ver.group(1)}")
@@ -168,21 +265,29 @@ async def stm32_flash(
     reset: bool = True,
     verify: bool = True,
     probe: str = "",
+    backend: str = "stlink",
 ) -> str:
-    """Flash firmware to STM32 board via ST-Link.
+    """Flash firmware to STM32 board, preferring direct stlink by default.
 
     Writes the specified .elf (or .bin/.hex) file to the connected STM32's
-    flash memory using OpenOCD over SWD.
+    flash memory. The default ``stlink`` backend uses st-flash; ``openocd``
+    remains available for ELF files or workflows that explicitly require it.
 
     Args:
         elf_path: Absolute path to the firmware file (.elf, .bin, or .hex).
         reset: If true, hard-reset the board after flashing.
         verify: If true, verify flash contents match the file.
         probe: Board nickname, probe nickname, or ST-Link SN to target a specific board.
+        backend: ``stlink`` (default) or ``openocd``.
 
     Returns:
         Flash result — ST-LINK info, download status, verify result.
     """
+    if backend == "stlink":
+        return await _flash_with_stlink(elf_path, reset, verify, probe)
+    if backend != "openocd":
+        return "ERROR: backend must be 'stlink' or 'openocd'."
+
     sn, target_cfg, chipid = resolve_probe_full(probe)
     loop = asyncio.get_event_loop()
     return await asyncio.wait_for(

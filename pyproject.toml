@@ -1,7 +1,7 @@
 [project]
 name = "stm32-mcp"
 version = "0.1.0"
-description = "MCP server for STM32 build, flash, and serial communication"
+description = "MCP server for STM32 build, flash, debugging, and serial communication"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "Chris McDowell"}]
@@ -17,7 +17,7 @@ classifiers = [
     "Topic :: Software Development :: Embedded Systems",
 ]
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=1.0.0,<2.0.0",
     "pyserial>=3.5",
     "opencv-python>=4.8.0",
 ]

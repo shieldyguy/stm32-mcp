@@ -192,8 +192,8 @@ def _enumerate_probes() -> list[dict]:
     # Parse probe blocks from st-info output. Format:
     #   Found 3 stlink programmers
     #   1.
-    #     version:    V3J16
-    #     serial:     003700163433510537363934
+    #     version:    V3Jxx
+    #     serial:     000000000000000000000001
     #     flash:      0 (pagesize: 0)
     #     sram:       0
     #     chipid:     0x494
