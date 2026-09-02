@@ -31,10 +31,16 @@ You can do things like:
 
 - **STM32CubeIDE** installed at `/Applications/STM32CubeIDE.app` (macOS) or `/opt/st/stm32cubeide_*` (Linux)
 - **Python 3.10+**
-- **OpenOCD** (`brew install open-ocd`) — for flash, memory read/write, and live monitoring
-- **open-source stlink tools** (`brew install stlink`) — for probe enumeration
+- **OpenOCD** (`brew install open-ocd`) — for memory read/write, live monitoring,
+  board info, and the optional OpenOCD flash backend
+- **open-source stlink tools** — `st-info`, `st-flash`, and optionally
+  `st-util`, `st-trace`, and `st-server` must already be installed and on
+  `PATH`; this MCP does not install them
 - **ST-Link** connected via USB (for flash/board info)
 - **Serial port** available (ST-Link VCP or USB-UART adapter)
+
+The upstream stlink project dropped macOS support in v1.8.0. On macOS, use a
+compatible older stlink release or use the existing OpenOCD-backed MCP tools.
 
 ## Installation
 
@@ -101,9 +107,14 @@ Builds share the MCP's headless CubeIDE workspace lock, so a
 | Tool                    | Description                                            |
 | ----------------------- | ------------------------------------------------------ |
 | `stm32_build`           | Compile firmware using CubeIDE headless builder        |
-| `stm32_flash`           | Flash .elf/.bin/.hex to board via ST-Link SWD          |
-| `stm32_build_and_flash` | Build + flash in one step (the 90% case)               |
+| `stm32_flash`           | Flash .elf/.bin/.hex via stlink/st-flash by default   |
+| `stm32_build_and_flash` | Build + stlink flash in one step (preferred workflow)  |
 | `stm32_board_info`      | Read ST-Link/MCU info (device ID, flash size, voltage) |
+
+`stm32_flash` and `stm32_build_and_flash` accept `backend="stlink"` (the
+default) or `backend="openocd"` for the legacy OpenOCD path. ELF inputs are
+converted to temporary Intel HEX files for stlink; binary inputs use the
+standard flash base address `0x08000000`.
 
 ### Multi-Board Management
 
@@ -131,9 +142,167 @@ Board nicknames follow the physical MCU (persist across probe swaps). Probe nick
 | -------------------- | ---------------------------------------------------------- |
 | `stm32_read_memory`  | Read memory by address or variable name (from ELF symbols) |
 | `stm32_write_memory` | Write memory by address or variable name                   |
+| `stm32_readelf`      | Inspect ELF headers, sections, symbols, and DWARF data     |
+| `stm32_disassemble`  | Disassemble ARM firmware with source and symbol context   |
 | `live_memory_start`  | Start continuous background memory monitoring via SWD      |
 | `live_memory_read`   | Read recent entries from a live memory session             |
 | `live_memory_stop`   | Stop a live memory session                                 |
+
+### Direct stlink Backend
+
+The direct stlink tools use the user-installed executables from the stlink
+project. They are separate from the existing OpenOCD-backed tools, so either
+backend can be selected for a workflow.
+
+| Tool                    | Description                                                     |
+| ----------------------- | --------------------------------------------------------------- |
+| `stlink_info`           | Run an `st-info` query                                          |
+| `stlink_flash`          | Run `st-flash` read/write/erase/reset                          |
+| `stlink_command`        | Run any supported stlink executable with an argument list       |
+| `stlink_debug_start`    | Start an `st-util` GDB server                                  |
+| `stlink_debug_command`  | Execute newline-separated ARM GDB commands against that server |
+| `stlink_debug_action`   | Typed breakpoint, step, variable, register, and memory actions |
+| `stlink_gdb_start`      | Start a persistent ARM GDB client                       |
+| `stlink_gdb_command`    | Execute one command in persistent GDB state             |
+| `stlink_gdb_status`     | Read persistent GDB state and output                    |
+| `stlink_gdb_stop`       | Stop the persistent GDB client                          |
+| `stlink_debug_status`   | Read GDB server state and recent output                        |
+| `stlink_debug_stop`     | Stop the GDB server                                             |
+| `stlink_trace_start`    | Start `st-trace`                                                |
+| `stlink_trace_read`     | Read buffered trace output                                     |
+| `stlink_trace_status`   | Read trace state                                                |
+| `stlink_trace_stop`     | Stop trace                                                      |
+| `stlink_server_start`   | Start the optional `st-server` proxy                           |
+| `stlink_server_status`  | Read proxy state                                                |
+| `stlink_server_stop`    | Stop the proxy                                                  |
+| `stlink_session_list`   | List managed stlink sessions                                   |
+
+#### Flashing with st-flash
+
+`stlink_flash` accepts a `probe` nickname, board nickname, or raw ST-Link
+serial number. Typical calls are:
+
+```text
+stlink_flash(operation="write", file_path="firmware.bin",
+             address="0x08000000", probe="blue", reset=true)
+stlink_flash(operation="read", file_path="backup.bin",
+             address="0x08000000", size="0x10000", probe="blue")
+stlink_flash(operation="erase", probe="blue")
+```
+
+For Intel HEX files, use `file_format="ihex"`; for option-byte and option
+control-register operations, use `area` and `value` as documented by the
+installed `st-flash --help`.
+
+The `reset` flag maps directly to st-flash's `--reset` option. Leaving it false
+does not suppress the reset behavior built into some stlink releases; it only
+omits the additional `--reset` request.
+
+#### Debugging with st-util
+
+Start a server, then send GDB command sequences through the returned session:
+
+```text
+stlink_debug_start(probe="blue", elf_path="/path/to/firmware.elf")
+stlink_debug_command(session_id="abcd1234",
+                     commands="break main\ncontinue\ninfo registers")
+stlink_debug_status(session_id="abcd1234")
+stlink_debug_stop(session_id="abcd1234")
+```
+
+`stlink_debug_command` uses `arm-none-eabi-gdb` and supports normal GDB
+commands, including breakpoints, stepping, variables, memory/register
+inspection, backtraces, `load`, and `monitor reset`. For example:
+
+```text
+stlink_debug_command(session_id="abcd1234",
+                     commands="break main\ncontinue\ninfo locals\ninfo registers\nstep")
+```
+
+The typed equivalent is useful when an action should be explicit:
+
+```text
+stlink_debug_action(session_id="abcd1234", action="breakpoint", location="main")
+stlink_debug_action(session_id="abcd1234", action="continue")
+stlink_debug_action(session_id="abcd1234", action="variables")
+stlink_debug_action(session_id="abcd1234", action="registers")
+stlink_debug_action(session_id="abcd1234", action="memory", location="0x20000000", count=4)
+stlink_debug_action(session_id="abcd1234", action="step")
+```
+
+Each typed action is a batch GDB invocation. For a breakpoint and the
+following stop/step operations that must share one GDB client state, send the
+sequence together with `stlink_debug_command`.
+
+The GDB executable is discovered from `STM32_ARM_TOOLCHAIN_BIN`, the supplied
+CubeIDE bundle, or `PATH`. The `st-util` server remains alive between calls
+when `multi=true` (the default). With `multi=false`, use one complete command
+sequence before the first GDB client disconnects.
+
+For persistent breakpoint and stepping state across separate MCP calls, start
+the MI-backed GDB client after the server:
+
+```text
+stlink_gdb_start(port=4242, elf_path="/path/to/firmware.elf")
+stlink_gdb_command(session_id="efgh5678", command="break main")
+stlink_gdb_command(session_id="efgh5678", command="continue")
+stlink_gdb_command(session_id="efgh5678", command="info registers")
+stlink_gdb_command(session_id="efgh5678", command="info locals")
+stlink_gdb_command(session_id="efgh5678", command="step")
+stlink_gdb_stop(session_id="efgh5678")
+```
+
+`stlink_debug_action` accepts `gdb_session_id` to run its typed action through
+this persistent client instead of creating a batch client.
+
+GDB commands are intentionally trusted input: GDB itself can execute host
+commands through commands such as `shell` or `source`. Do not expose this MCP
+server to untrusted clients.
+
+`stlink_server_start` binds to loopback by default. Binding elsewhere requires
+`allow_non_loopback=true`; `st-server` has no authentication or encryption and
+exposes full flash/debug control to clients that can reach the port.
+
+Stop `live_memory` sessions and other OpenOCD users before opening an stlink
+session on the same probe; those existing backends have separate process
+lifecycles.
+
+#### ELF Inspection and Disassembly
+
+Use `stm32_readelf` for ELF metadata and DWARF data:
+
+```text
+stm32_readelf(elf_path="/path/to/firmware.elf", mode="headers")
+stm32_readelf(elf_path="/path/to/firmware.elf", mode="sections")
+stm32_readelf(elf_path="/path/to/firmware.elf", mode="symbols")
+stm32_readelf(elf_path="/path/to/firmware.elf", mode="debug_info")
+```
+
+Use `stm32_disassemble` for code:
+
+```text
+stm32_disassemble(elf_path="/path/to/firmware.elf", function="main")
+stm32_disassemble(elf_path="/path/to/firmware.elf",
+                  start_address="0x08000100", stop_address="0x08000200",
+                  source=true)
+```
+
+Both tools call the ARM-prefixed CubeIDE binaries and accept `extra_args` for
+binutils options specific to the installed release.
+
+#### Generic stlink Commands
+
+Use `stlink_command` when a local stlink release exposes an option not covered
+by the typed tools. `tool` must be one of `st-info`, `st-flash`, `st-util`,
+`st-trace`, or `st-server`, and `arguments` is a JSON/list argument array, not
+a shell command string. For example:
+
+```text
+stlink_command(tool="st-info", arguments=["--version"])
+```
+
+The server passes arguments without a shell and returns the command's stdout
+and stderr, with exit codes included for failed commands and timeout errors.
 
 ## Hardware Sequences
 
@@ -253,7 +422,7 @@ Returns stats: duration, read count, error count, output file path.
 ### Constraints
 
 - **One session per probe** — this is a hardware constraint (single SWD connection)
-- **Stop before flashing** — `live_memory` holds the SWD connection; `stm32_flash` and `stm32_read/write_memory` will fail if a session is active
+- **Stop before flashing** — `live_memory` holds the SWD connection; `stm32_flash`, `stlink_flash`, and `stm32_read/write_memory` will fail if a session is active
 - **TCL port 6666** — OpenOCD's default. Stop other OpenOCD instances first if there's a conflict
 
 ## Serial Defaults

@@ -55,7 +55,7 @@ def _first_connection_id() -> str | None:
 
 
 def _port_nickname(port_path: str) -> str | None:
-    """Return a human-friendly label for a port, e.g. 'dev ccb via yellow'."""
+    """Return a human-friendly label for a port, e.g. 'dev myboard via probe1'."""
     # Find the pyserial port info for this path
     for port in serial.tools.list_ports.comports():
         if port.device == port_path and port.serial_number:

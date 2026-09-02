@@ -1,12 +1,9 @@
-"""Toolchain discovery — find CubeIDE, OpenOCD, st-info, and ARM toolchain.
+"""Toolchain discovery — find CubeIDE, OpenOCD, stlink, and ARM toolchain.
 
-ARM TOOLCHAIN (arm-none-eabi-nm, arm-none-eabi-gdb, etc.):
-  These are found via PATH. The CubeIDE-bundled toolchain directory must be on
-  PATH in ~/.zshrc. If tools are not found, CubeIDE was probably updated and
-  the versioned plugin path changed. Fix: update the PATH export in ~/.zshrc to
-  match the new plugin directory under:
-    /Applications/STM32CubeIDE.app/Contents/Eclipse/plugins/
-        com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.*/tools/bin/
+ARM TOOLCHAIN (arm-none-eabi-nm, arm-none-eabi-gdb, readelf, objdump, etc.):
+  These are found from STM32_ARM_TOOLCHAIN_BIN, the known CubeIDE bundle, or
+  PATH. If CubeIDE is installed in another location, set the environment
+  variable to its tools/bin directory.
 """
 
 import glob
@@ -23,11 +20,20 @@ _openocd_path: str | None = None
 _st_info_path: str | None = None
 _stm32_programmer_cli_path: str | None = None
 _wireless_binaries_dir: str | None = None
+_stlink_paths: dict[str, str | None] = {}
 _cubeide_searched = False
 _openocd_searched = False
 _st_info_searched = False
 _stm32_programmer_cli_searched = False
 _wireless_binaries_searched = False
+
+_ARM_TOOL_NAMES = {
+    "arm-none-eabi-gdb",
+    "arm-none-eabi-nm",
+    "arm-none-eabi-objcopy",
+    "arm-none-eabi-readelf",
+    "arm-none-eabi-objdump",
+}
 
 
 def find_cubeide() -> str | None:
@@ -133,28 +139,104 @@ def find_st_info() -> str | None:
     if _st_info_searched:
         return _st_info_path
 
-    candidates = [
-        "/opt/homebrew/bin/st-info",
-        "/usr/local/bin/st-info",
-        "/usr/bin/st-info",
-    ]
-    for path in candidates:
-        if os.path.isfile(path):
-            _st_info_path = path
-            break
+    _st_info_path = find_stlink_tool("st-info")
 
     _st_info_searched = True
     return _st_info_path
 
 
+def find_stlink_tool(tool: str) -> str | None:
+    """Find an executable from the user-installed stlink toolset.
+
+    stlink is deliberately not installed or bundled by this project.  PATH is
+    checked first so package-manager and user-local installations work on all
+    supported platforms; the common Unix locations are retained as a fallback
+    for environments that expose a minimal PATH to the MCP server.
+    """
+    if tool not in {"st-info", "st-flash", "st-util", "st-trace", "st-server"}:
+        return None
+
+    if tool in _stlink_paths:
+        return _stlink_paths[tool]
+
+    path = shutil.which(tool)
+    if path is None:
+        for candidate in (
+            f"/opt/homebrew/bin/{tool}",
+            f"/usr/local/bin/{tool}",
+            f"/usr/bin/{tool}",
+        ):
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                path = candidate
+                break
+
+    _stlink_paths[tool] = path
+    return path
+
+
+def find_arm_tool(tool: str) -> str | None:
+    """Find an ARM GNU tool shipped with STM32CubeIDE.
+
+    The MCP process often starts without loading the user's interactive shell
+    profile.  Prefer ``STM32_ARM_TOOLCHAIN_BIN`` and the known CubeIDE bundle,
+    then fall back to PATH and versioned CubeIDE installations.
+    """
+    if tool not in _ARM_TOOL_NAMES:
+        return None
+
+    configured_dir = os.environ.get("STM32_ARM_TOOLCHAIN_BIN")
+    directories = [configured_dir]
+    directories.extend(
+        sorted(
+            glob.glob(
+                "/opt/st/stm32cubeide_*/plugins/"
+                "com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.*/tools/bin"
+            ),
+            reverse=True,
+        )
+    )
+    directories.extend(
+        sorted(
+            glob.glob(
+                "/Applications/STM32CubeIDE.app/Contents/Eclipse/plugins/"
+                "com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.*/tools/bin"
+            ),
+            reverse=True,
+        )
+    )
+    for directory in directories:
+        if not directory:
+            continue
+        candidate = os.path.join(directory, tool)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+
+    return shutil.which(tool)
+
+
 def find_nm() -> str | None:
-    """Find arm-none-eabi-nm on PATH (from CubeIDE toolchain)."""
-    return shutil.which("arm-none-eabi-nm")
+    """Find arm-none-eabi-nm from CubeIDE or PATH."""
+    return find_arm_tool("arm-none-eabi-nm")
 
 
 def find_gdb() -> str | None:
-    """Find arm-none-eabi-gdb on PATH (from CubeIDE toolchain)."""
-    return shutil.which("arm-none-eabi-gdb")
+    """Find arm-none-eabi-gdb from CubeIDE or PATH."""
+    return find_arm_tool("arm-none-eabi-gdb")
+
+
+def find_readelf() -> str | None:
+    """Find arm-none-eabi-readelf from CubeIDE or PATH."""
+    return find_arm_tool("arm-none-eabi-readelf")
+
+
+def find_objdump() -> str | None:
+    """Find arm-none-eabi-objdump from CubeIDE or PATH."""
+    return find_arm_tool("arm-none-eabi-objdump")
+
+
+def find_objcopy() -> str | None:
+    """Find arm-none-eabi-objcopy from CubeIDE or PATH."""
+    return find_arm_tool("arm-none-eabi-objcopy")
 
 
 # ---------------------------------------------------------------------------
